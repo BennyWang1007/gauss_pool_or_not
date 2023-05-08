@@ -1,10 +1,10 @@
 /*
  *  Author: Paul Horton
  *  Copyright: Paul Horton 2021, All rights reserved.
- *  Created: 2021.MM.DD
- *  Updated: 2021.MM.DD
+ *  Created: 20211201
+ *  Updated: 20230508
  *  Description: See header file.
- *  Compile:  gcc -o Gaussian_poolOrNot Gaussian_poolOrNot.c GSLfun.c -lgsl -lgslcblas -lm
+ *  Compile:  gcc -O3 -o Gaussian_poolOrNot Gaussian_poolOrNot.c GSLfun.c -lgsl -lgslcblas -lm
  *  Environment: $GSL_RNG_SEED
  */
 #include <assert.h>
@@ -219,19 +219,42 @@ double data_prob_2component_bySampling(){
 
 int main( int argc, char *argv[] ){
 
+  uint datasets_n= 10;
+
+  {
+    char usage_fmt[]=  "Usage: %s [num_datasets]\n";
+    switch( argc ){
+    case 1:
+      break;
+    case 2:
+      datasets_n=  atoi( argv[1] );
+      if( !datasets_n ){
+        printf(  usage_fmt, argv[0]  );
+        exit( 64 );
+      }
+      break;
+    default:
+      printf(  usage_fmt, argv[0]  );
+      exit( 64 );
+    }
+  }
+
   GSLfun_setup();
   double prob_data1_bySampling, prob_data2_bySampling;
   double prob_data1_bySumming,  prob_data2_bySumming;
   
   cdfInv_precompute();
 
-  const uint datasets_n= 10;
+    
   uint model1_sampling_favors1=  0;
   uint model1_summing__favors1=  0;
   uint model2_sampling_favors1=  0;
   uint model2_summing__favors1=  0;
 
 
+
+  printf(  "Starting computation for %d datasets each. ...\n",  datasets_n  );
+  
   printf( "\nData generated with one component\n" );
   for(  uint iter= 0;  iter < datasets_n;  ++iter  ){
     Gauss_params model_params = prior_Gauss_params_sample();
