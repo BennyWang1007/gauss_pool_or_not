@@ -41,3 +41,8 @@ double GSLfun_ran_gaussian_pdf( double x, Gauss_params params  ){
 double gsl_ran_flat01(){
   return  gsl_ran_flat( gslRNG, 0.0, 1.0 );
 }
+
+
+double sigma_of_precision( double precision ){
+  return  sqrt( 1.0 / precision );
+}

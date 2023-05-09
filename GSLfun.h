@@ -1,4 +1,5 @@
 #pragma once
+#include <math.h>
 #include <stdio.h>
 #include <gsl/gsl_cdf.h>
 #include <gsl/gsl_rng.h>
@@ -25,3 +26,6 @@ double GSLfun_ran_gaussian( Gauss_params params );
 double GSLfun_ran_gaussian_pdf( double x, Gauss_params params );
 
 double gsl_ran_flat01();
+
+
+double sigma_of_precision( double precision );
