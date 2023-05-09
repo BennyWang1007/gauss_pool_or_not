@@ -27,7 +27,6 @@ typedef struct{
 const Gauss_params mu_prior_params= {0.0, 4.0};
 const double sigma_prior_param_a= 0.5;
 const double sigma_prior_param_b= 2.0;
-const double sigma_prior_minval= 0.01;
 
 
 double data[DATA_N];
@@ -77,7 +76,7 @@ void data_print(){
 Gauss_params prior_Gauss_params_sample(){
   Gauss_params params;
   params.mu=   GSLfun_ran_gaussian( mu_prior_params );
-  params.sigma=  sigma_prior_minval + GSLfun_ran_gamma( sigma_prior_param_a, sigma_prior_param_b );
+  params.sigma=  sigma_of_precision( GSLfun_ran_gamma(sigma_prior_param_a, sigma_prior_param_b) );
   return  params;
 }
 
@@ -95,17 +94,18 @@ double cdfInv_Gauss[CDF_GAUSS_N];  const double cdf_Gauss_n= CDF_GAUSS_N;
 double cdfInv_gamma[CDF_GAMMA_N];  const double cdf_gamma_n= CDF_GAMMA_N;
 double cdfInv_JBeta[CDF_JBETA_N];  const double cdf_JBeta_n= CDF_JBETA_N;
 
+//  Precompute the cumulative probabilities of μ and σ discrete values.
+//  The probabilities depend on the current prior_params values
 void cdfInv_precompute(){
   double x;
   // Since Normal range is unbounded, precompute cdfInv for vals:  ¹⁄₍ₙ₊₁₎...ⁿ⁄₍ₙ₊₁₎
   for(  uint i= 0; i < cdf_Gauss_n; ++i  ){
     x= (i+1) / (double) (1+cdf_Gauss_n);
     cdfInv_Gauss[i]=  gsl_cdf_gaussian_Pinv( x, mu_prior_params.sigma );
-    //printf( "cdfInv_Gauss[%u]= %g\n", i, cdfInv_Gauss[i] );
   }
   for(  uint i= 0; i < cdf_gamma_n; ++i  ){
     x= i / (double) (cdf_gamma_n);
-    cdfInv_gamma[i]=  sigma_prior_minval + gsl_cdf_gamma_Pinv( x, sigma_prior_param_a, sigma_prior_param_b );
+    cdfInv_gamma[i]=  gsl_cdf_gamma_Pinv( x, sigma_prior_param_a, sigma_prior_param_b );
     //printf( "cdfInv_Gamma[%u]= %g\n", i, cdfInv_gamma[i] );
   }
   for(  uint i= 0; i < cdf_JBeta_n; ++i  ){
@@ -115,6 +115,7 @@ void cdfInv_precompute(){
     //printf( "cdfInv_JBeta[%u]= %g\n", i, cdfInv_JBeta[i] );
   }
 }
+
 
 void data_generate_1component( Gauss_params params ){
   for( uint i= 0; i < dataN; ++i ){
@@ -136,7 +137,7 @@ double data_prob_1component_bySumming(){
   for(  uint m= 0;  m < cdf_Gauss_n;  ++m  ){
     double mu= cdfInv_Gauss[m];
     for(  uint s= 0;  s < cdf_gamma_n;  ++s  ){
-      double sigma= cdfInv_gamma[s];
+      double sigma=  sigma_of_precision( cdfInv_gamma[s] );
       Gauss_params cur_params= {mu, sigma};
       double curProb= 1.0;
       for(  uint d= 0;  d < dataN;  ++d  ){
@@ -158,10 +159,10 @@ double data_prob_2component_bySumming(){
     for(  uint m2= 0;  m2 < cdf_Gauss_n;  ++m2  ){
       double mu2= cdfInv_Gauss[m2];
       for(  uint s1= 0;  s1 < cdf_gamma_n;  ++s1  ){
-        double sigma1= cdfInv_gamma[s1];
+        double sigma1=  sigma_of_precision( cdfInv_gamma[s1] );
         Gauss_params cur_params1= {mu1, sigma1};
         for(  uint s2= 0;  s2 < cdf_gamma_n;  ++s2  ){
-          double sigma2= cdfInv_gamma[s2];
+          double sigma2=  sigma_of_precision( cdfInv_gamma[s2] );
           Gauss_params cur_params2= {mu2, sigma2};
           for(  uint mi= 0;  mi < cdf_JBeta_n;  ++mi  ){
             double mixCof= cdfInv_JBeta[mi];
@@ -258,7 +259,7 @@ int main( int argc, char *argv[] ){
   printf( "\nData generated with one component\n" );
   for(  uint iter= 0;  iter < datasets_n;  ++iter  ){
     Gauss_params model_params = prior_Gauss_params_sample();
-    printf(  "generating data with: (μ,σ) = (%4.2f,%4.2f)\n", model_params.mu, model_params.sigma  );
+    printf(  "generating data with: (μ,σ) =  (%4.2f,%4.2f)\n", model_params.mu, model_params.sigma  );
     data_generate_1component( model_params );
 
     prob_data1_bySampling=  data_prob_1component_bySampling();
@@ -276,7 +277,7 @@ int main( int argc, char *argv[] ){
   printf( "\nData generated with two components\n" );
   for(  uint iter= 0;  iter < datasets_n;  ++iter  ){
     Gauss_mixture_params model_params=  prior_Gauss_mixture_params_sample();
-    printf(  "generating data with:  m; (μ1,σ1); (μ2,σ2) = %5.3f; (%4.2f,%4.2f); (%4.2f,%4.2f)\n",
+    printf(  "generating data with:  m; (μ1,σ1); (μ2,σ2) =  %5.3f; (%4.2f,%4.2f); (%4.2f,%4.2f)\n",
              model_params.mixCof,
              model_params.Gauss1.mu, model_params.Gauss1.sigma,
              model_params.Gauss2.mu, model_params.Gauss2.sigma  );
