@@ -2,8 +2,10 @@
  *  Author: Paul Horton
  *  Copyright: Paul Horton 2021, All rights reserved.
  *  Created: 20211201
- *  Updated: 20230508
- *  Description: See header file.
+ *  Updated: 20240603
+ *  Licence: GPLv3
+ *  Description: Simple demonstration of a Bayesian way to guess at the number of components
+ *               behind a sample of numerical data.
  *  Compile:  gcc -O3 -o Gaussian_poolOrNot Gaussian_poolOrNot.c GSLfun.c -lgsl -lgslcblas -lm
  *  Environment: $GSL_RNG_SEED
  */
@@ -12,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "GSLfun.h"
+/* ───────────  Global definitions and variables  ────────── */
 #define DATA_N 40
 #define CDF_GAUSS_N 20
 #define CDF_GAMMA_N 10
@@ -37,14 +40,8 @@ enum modelNames{ POOLED, DIFFER };
 const uint sampleRepeatNum= 2000000;
 
 
-int CMPup( const void *arg1, const void *arg2 ){
-  return(    (*(double*) arg1 < *(double*) arg2)? -1 :
-             (*(double*) arg2 < *(double*) arg1)? +1 :
-             0);
-}
 
-
-void println(){  printf( "\n" );  }
+/* ───────────  Functions to help summarize or dump the data  ────────── */
 
 double data_sample_mean(){
   double mean= 0.0;
@@ -61,17 +58,27 @@ double data_sample_variance(){
     double diff=  data[i] - mean;
     var +=  diff * diff;
   }
-  return  var / (double) (dataN-1);
+  return  var / (double) (dataN);
+}
+
+
+// ternary CMP function for use with qsort
+int CMPdata( const void *arg1, const void *arg2 ){
+  return(
+         (*(double*) arg1 < *(double*) arg2)? -1 :
+         (*(double*) arg2 < *(double*) arg1)? +1 :
+         /* else    *arg1 == *arg2   */        0);
 }
 
 void data_print(){
-  qsort(  data,  dataN,  sizeof(double), CMPup  );
+  qsort(  data,  dataN,  sizeof(double), CMPdata  );
   for( uint i= 0;  i < dataN;  ++i ){
     printf( "%+5.3f ", i, data[i] );
   }
 }
 
 
+/* ───────────  Functions used for sampling/generating data   ────────── */
 
 Gauss_params prior_Gauss_params_sample(){
   Gauss_params params;
@@ -89,7 +96,23 @@ Gauss_mixture_params prior_Gauss_mixture_params_sample(){
   return  params;
 }
 
+void data_generate_1component( Gauss_params params ){
+  for( uint i= 0; i < dataN; ++i ){
+    data[i]=  GSLfun_ran_gaussian( params );
+  }
+}
 
+void data_generate_2component( Gauss_mixture_params params ){
+  for( uint i= 0; i < dataN; ++i ){
+    data[i]=  GSLfun_ran_gaussian
+      (gsl_ran_flat01() < params.mixCof?  params.Gauss1  : params.Gauss2);
+  }
+}
+
+
+/* ───────────  Functions used for numerical integration  ────────── */
+
+// Arrays to hold precomputed values.
 double cdfInv_Gauss[CDF_GAUSS_N];  const double cdf_Gauss_n= CDF_GAUSS_N;
 double cdfInv_gamma[CDF_GAMMA_N];  const double cdf_gamma_n= CDF_GAMMA_N;
 double cdfInv_JBeta[CDF_JBETA_N];  const double cdf_JBeta_n= CDF_JBETA_N;
@@ -117,21 +140,12 @@ void cdfInv_precompute(){
 }
 
 
-void data_generate_1component( Gauss_params params ){
-  for( uint i= 0; i < dataN; ++i ){
-    data[i]=  GSLfun_ran_gaussian( params );
-  }
-}
 
-void data_generate_2component( Gauss_mixture_params params ){
-  for( uint i= 0; i < dataN; ++i ){
-    data[i]=  GSLfun_ran_gaussian
-      (gsl_ran_flat01() < params.mixCof?  params.Gauss1  : params.Gauss2);
-  }
-}
-
-
-
+/* Compute Riemann sum to approximate the integral
+ *
+ * ∫ μ,σ  P[D,μ,σ]
+ *
+*/
 double data_prob_1component_bySumming(){
   double prob_total= 0.0;
   for(  uint m= 0;  m < cdf_Gauss_n;  ++m  ){
@@ -151,6 +165,11 @@ double data_prob_1component_bySumming(){
 }
 
 
+/* Compute Riemann sum to approximate integral
+ *
+ * ∫ m,μ₁,σ₁,μ₂,σ₂  P[D,m,μ₁,σ₁,μ₂,σ₂]
+ *
+*/
 double data_prob_2component_bySumming(){
   double prob_total= 0.0;
 
@@ -183,7 +202,9 @@ double data_prob_2component_bySumming(){
 
 
 
-
+/*  Use sampling to estimate
+ *  ∫ μ,σ  P[D,μ,σ]
+ */
 double data_prob_1component_bySampling(){
   double curProb, prob_total= 0.0;
 
@@ -199,6 +220,10 @@ double data_prob_1component_bySampling(){
 }
 
 
+
+/*  Use sampling to estimate
+ *  ∫ m,μ₁,σ₁,μ₂,σ₂  P[D,m,μ₁,σ₁,μ₂,σ₂]
+ */
 double data_prob_2component_bySampling(){
   double curProb, prob_total= 0.0;
 
