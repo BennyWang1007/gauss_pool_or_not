@@ -31,9 +31,9 @@ const double sigma_prior_param_b= 2.0;
 
 double data[DATA_N];
 const uint dataN= DATA_N;
-                 
+
 enum modelNames{ POOLED, DIFFER };
-                
+
 const uint sampleRepeatNum= 2000000;
 
 
@@ -180,8 +180,8 @@ double data_prob_2component_bySumming(){
   }
   return  prob_total / (double) (cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
 }
-  
-  
+
+
 
 
 double data_prob_1component_bySampling(){
@@ -216,7 +216,7 @@ double data_prob_2component_bySampling(){
   return  prob_total / (double) sampleRepeatNum;
 }
 
-  
+
 
 int main( int argc, char *argv[] ){
 
@@ -243,10 +243,10 @@ int main( int argc, char *argv[] ){
   GSLfun_setup();
   double prob_data1_bySampling, prob_data2_bySampling;
   double prob_data1_bySumming,  prob_data2_bySumming;
-  
+
   cdfInv_precompute();
 
-    
+
   uint model1_sampling_favors1=  0;
   uint model1_summing__favors1=  0;
   uint model2_sampling_favors1=  0;
@@ -255,7 +255,7 @@ int main( int argc, char *argv[] ){
 
 
   printf(  "Starting computation for %d datasets each. ...\n",  datasets_n  );
-  
+
   printf( "\nData generated with one component\n" );
   for(  uint iter= 0;  iter < datasets_n;  ++iter  ){
     Gauss_params model_params = prior_Gauss_params_sample();
