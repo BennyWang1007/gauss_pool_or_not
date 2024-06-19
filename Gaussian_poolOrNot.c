@@ -6,7 +6,7 @@
  *  Licence: GPLv3
  *  Description: Simple demonstration of a Bayesian way to guess at the number of components
  *               behind a sample of numerical data.
- *  Compile:  gcc -O3 -o Gaussian_poolOrNot Gaussian_poolOrNot.c GSLfun.c -lgsl -lgslcblas -lm
+ *  Compile:  gcc -Wall -O3 -o Gaussian_poolOrNot Gaussian_poolOrNot.c GSLfun.c -lgsl -lgslcblas -lm
  *  Environment: $GSL_RNG_SEED
  */
 #include <assert.h>
@@ -73,7 +73,7 @@ int CMPdata( const void *arg1, const void *arg2 ){
 void data_print(){
   qsort(  data,  dataN,  sizeof(double), CMPdata  );
   for( uint i= 0;  i < dataN;  ++i ){
-    printf( "%+5.3f ", i, data[i] );
+    printf( "%u\t+%5.3f ", i, data[i] );
   }
 }
 
