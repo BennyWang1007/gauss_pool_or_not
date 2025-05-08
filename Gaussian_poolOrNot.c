@@ -110,7 +110,7 @@ void data_generate_2component( Gauss_mixture_params params ){
 }
 
 
-/* ───────────  Functions used for numerical integration  ────────── */
+/* ───────────  Numerical integration precomputation  ────────── */
 
 // Arrays to hold precomputed values.
 double cdfInv_Gauss[CDF_GAUSS_N];  const double cdf_Gauss_n= CDF_GAUSS_N;
@@ -141,6 +141,19 @@ void cdfInv_precompute(){
 
 
 
+
+/* ───────────  Probability Computations on the Data  ────────── */
+
+// Return Ｐ[D|μ,σ]
+double prob_data_given_1Gauss( const Gauss_params params ){
+  double prob= 1.0;
+  for(  uint d= 0;  d < dataN;  ++d  ){
+    prob *= GSLfun_ran_gaussian_pdf( data[d], params );
+  }
+  return prob;
+}
+
+
 /* Compute Riemann sum to approximate the integral
  *
  * ∫ μ,σ  P[D,μ,σ]
@@ -153,12 +166,7 @@ double data_prob_1component_bySumming(){
     for(  uint s= 0;  s < cdf_gamma_n;  ++s  ){
       double sigma=  sigma_of_precision( cdfInv_gamma[s] );
       Gauss_params cur_params= {mu, sigma};
-      double curProb= 1.0;
-      for(  uint d= 0;  d < dataN;  ++d  ){
-        double newProb= GSLfun_ran_gaussian_pdf( data[d], cur_params );
-        curProb *= newProb;
-      }
-      prob_total += curProb;
+      prob_total += prob_data_given_1Gauss( cur_params );
     }
   }
   return  prob_total / (double) (cdf_Gauss_n * cdf_gamma_n);
@@ -206,15 +214,11 @@ double data_prob_2component_bySumming(){
  *  ∫ μ,σ  P[D,μ,σ]
  */
 double data_prob_1component_bySampling(){
-  double curProb, prob_total= 0.0;
+  double prob_total= 0.0;
 
   for( uint iter= 0;  iter < sampleRepeatNum; ++iter ){
     Gauss_params params= prior_Gauss_params_sample();
-    curProb= 1.0;
-    for(  uint d= 0;  d < dataN;  ++d ){
-      curProb *= GSLfun_ran_gaussian_pdf( data[d], params );
-    }
-    prob_total += curProb;
+    prob_total += prob_data_given_1Gauss( params );
   }
   return  prob_total / (double) sampleRepeatNum;
 }
