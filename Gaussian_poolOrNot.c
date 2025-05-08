@@ -154,6 +154,17 @@ double prob_data_given_1Gauss( const Gauss_params params ){
 }
 
 
+// Return Ｐ[D|m,μ₁,σ₁,μ₂,σ₂]
+double prob_data_given_2Gauss( const double mixCof, const Gauss_params Gauss1, const Gauss_params Gauss2  ){
+    double prob= 1.0;
+    for( uint i= 0; i < dataN; ++i ){
+      prob *=   (1-mixCof) * GSLfun_ran_gaussian_pdf( data[i], Gauss2 )
+              +    mixCof  * GSLfun_ran_gaussian_pdf( data[i], Gauss1 );
+    }
+    return prob;
+}
+
+
 /* Compute Riemann sum to approximate the integral
  *
  * ∫ μ,σ  P[D,μ,σ]
@@ -193,13 +204,7 @@ double data_prob_2component_bySumming(){
           Gauss_params cur_params2= {mu2, sigma2};
           for(  uint mi= 0;  mi < cdf_JBeta_n;  ++mi  ){
             double mixCof= cdfInv_JBeta[mi];
-            double curProb= 1.0;
-            for(  uint d= 0;  d < dataN;  ++d  ){
-              double newProb=  mixCof  * GSLfun_ran_gaussian_pdf( data[d], cur_params1 )
-                +           (1-mixCof) * GSLfun_ran_gaussian_pdf( data[d], cur_params2 );
-              curProb *= newProb;
-            }
-            prob_total += curProb;
+            prob_total +=  prob_data_given_2Gauss( mixCof, cur_params1, cur_params2 );
           }
         }
       }
@@ -229,18 +234,11 @@ double data_prob_1component_bySampling(){
  *  ∫ m,μ₁,σ₁,μ₂,σ₂  P[D,m,μ₁,σ₁,μ₂,σ₂]
  */
 double data_prob_2component_bySampling(){
-  double curProb, prob_total= 0.0;
+  double prob_total= 0.0;
 
   for( uint iter= 0;  iter < sampleRepeatNum; ++iter ){
     Gauss_mixture_params params=  prior_Gauss_mixture_params_sample();
-    curProb= 1.0;
-    for( uint i= 0; i < dataN; ++i ){
-      double newProb=
-        (1-params.mixCof) * GSLfun_ran_gaussian_pdf( data[i], params.Gauss2 )
-        +  params.mixCof  * GSLfun_ran_gaussian_pdf( data[i], params.Gauss1 );
-      curProb *= newProb;
-    }
-    prob_total += curProb;
+    prob_total += prob_data_given_2Gauss( params.mixCof, params.Gauss1, params.Gauss2 );
   }
   return  prob_total / (double) sampleRepeatNum;
 }
