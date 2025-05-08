@@ -15,7 +15,7 @@
 #include <string.h>
 #include "GSLfun.h"
 /* ───────────  Global definitions and variables  ────────── */
-#define DATA_N 40
+#define DATA_N 50
 #define CDF_GAUSS_N 20
 #define CDF_GAMMA_N 10
 #define CDF_JBETA_N 40
