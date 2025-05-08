@@ -62,6 +62,7 @@ double data_sample_variance(){
 }
 
 
+
 // ternary CMP function for use with qsort
 int CMPdata( const void *arg1, const void *arg2 ){
   return(
@@ -163,6 +164,14 @@ double prob_data_given_2Gauss( const double mixCof, const Gauss_params Gauss1, c
     }
     return prob;
 }
+
+
+// Return maximum likelihood of the data using a single Gaussian
+double data_Gauss1_maxLikelihood(){
+  Gauss_params params= { data_sample_mean(), data_sample_variance() };
+  return prob_data_given_1Gauss( params );
+}
+
 
 
 /* Compute Riemann sum to approximate the integral
@@ -288,6 +297,7 @@ int main( int argc, char *argv[] ){
     Gauss_params model_params = prior_Gauss_params_sample();
     printf(  "generating data with: (μ,σ) =  (%4.2f,%4.2f)\n", model_params.mu, model_params.sigma  );
     data_generate_1component( model_params );
+    printf(  "Data maximum likelihood under one component model= %g\n", data_Gauss1_maxLikelihood()  );
 
     prob_data1_bySampling=  data_prob_1component_bySampling();
     prob_data2_bySampling=  data_prob_2component_bySampling();
@@ -309,6 +319,7 @@ int main( int argc, char *argv[] ){
              model_params.Gauss1.mu, model_params.Gauss1.sigma,
              model_params.Gauss2.mu, model_params.Gauss2.sigma  );
     data_generate_2component( model_params );
+    printf(  "Data maximum likelihood under one component model= %g\n", data_Gauss1_maxLikelihood()  );
 
     prob_data1_bySampling=  data_prob_1component_bySampling();
     prob_data2_bySampling=  data_prob_2component_bySampling();
