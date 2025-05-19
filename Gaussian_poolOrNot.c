@@ -66,11 +66,9 @@ double data_sample_variance() {
 
 // ternary CMP function for use with qsort
 int CMPdata(const void *arg1, const void *arg2) {
-  return ((*(double *) arg1 < *(double *) arg2) ? -1
-          : (*(double *) arg2 < *(double *) arg1)
-              ? +1
-              :
-              /* else    *arg1 == *arg2   */ 0);
+  double *a = (double *) arg1;
+  double *b = (double *) arg2;
+  return (*a > *b) - (*a < *b);
 }
 
 void data_print() {
