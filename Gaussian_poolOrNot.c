@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "GSLfun.h"
+#include "thread_setup.h"
 /* ───────────  Global definitions and variables  ────────── */
 #define DATA_N 50
 #define CDF_GAUSS_N 20
@@ -39,6 +40,22 @@ static double data[DATA_N];
 
 static const uint sampleRepeatNum = 2000000;
 
+#ifdef USE_THREADS
+static pthread_key_t rng_key;
+
+static void init_rng(int thread_idx) {
+  gsl_rng_env_setup();
+  gsl_rng *r = gsl_rng_alloc(gsl_rng_mt19937);
+  unsigned long seed;
+  if (getenv("GSL_RNG_SEED")) {
+    seed = atoi(getenv("GSL_RNG_SEED")) + thread_idx;
+  } else {
+    seed = DEFAULT_RNG_SEED + thread_idx;  // Reproducible per-thread seed
+  }
+  gsl_rng_set(r, seed);
+  pthread_setspecific(rng_key, r);
+}
+#endif
 
 
 /* ───────────  Functions to help summarize or dump the data  ────────── */
@@ -229,11 +246,44 @@ double data_prob_2component_bySumming() {
 }
 
 
+#ifdef USE_THREADS
+void *thread_func_1component(void *arg) {
+  ThreadArg *targ = (ThreadArg *) arg;
+  init_rng(targ->thread_index);
+
+  double sum = 0.0;
+
+  for (uint i = targ->start; i < targ->end; ++i) {
+    Gauss_params params = prior_Gauss_params_sample();
+    sum += prob_data_given_1Gauss(params);
+  }
+
+  targ->result = sum;
+  return NULL;
+}
+
+
+void *thread_func_2component(void *arg) {
+  ThreadArg *targ = (ThreadArg *) arg;
+  init_rng(targ->thread_index);
+  double sum = 0.0;
+
+  for (uint i = targ->start; i < targ->end; ++i) {
+    Gauss_mixture_params params = prior_Gauss_mixture_params_sample();
+    sum += prob_data_given_2Gauss(params.mixCof, params.Gauss1, params.Gauss2);
+  }
+
+  targ->result = sum;
+  return NULL;
+}
+#endif
+
 
 /*  Use sampling to estimate
  *  ∫ μ,σ  P[D,μ,σ]
  */
 double data_prob_1component_bySampling() {
+#ifndef USE_THREADS
   double prob_total = 0.0;
 
   for (uint iter = 0; iter < sampleRepeatNum; ++iter) {
@@ -241,6 +291,30 @@ double data_prob_1component_bySampling() {
     prob_total += prob_data_given_1Gauss(params);
   }
   return prob_total / (double) sampleRepeatNum;
+#else
+  pthread_t threads[NUM_THREADS];
+  ThreadArg args[NUM_THREADS];
+
+  uint chunk = sampleRepeatNum / NUM_THREADS;
+  uint remainder = sampleRepeatNum % NUM_THREADS;
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    args[i].start = i * chunk;
+    args[i].end =
+        (i == NUM_THREADS - 1) ? (i + 1) * chunk + remainder : (i + 1) * chunk;
+    args[i].result = 0.0;
+    args[i].thread_index = i;
+    pthread_create(&threads[i], NULL, thread_func_1component, &args[i]);
+  }
+
+  double total = 0.0;
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+    total += args[i].result;
+  }
+
+  return total / (double) sampleRepeatNum;
+#endif
 }
 
 
@@ -249,6 +323,7 @@ double data_prob_1component_bySampling() {
  *  ∫ m,μ₁,σ₁,μ₂,σ₂  P[D,m,μ₁,σ₁,μ₂,σ₂]
  */
 double data_prob_2component_bySampling() {
+#ifndef USE_THREADS
   double prob_total = 0.0;
 
   for (uint iter = 0; iter < sampleRepeatNum; ++iter) {
@@ -257,6 +332,30 @@ double data_prob_2component_bySampling() {
         prob_data_given_2Gauss(params.mixCof, params.Gauss1, params.Gauss2);
   }
   return prob_total / (double) sampleRepeatNum;
+#else
+  pthread_t threads[NUM_THREADS];
+  ThreadArg args[NUM_THREADS];
+
+  uint chunk = sampleRepeatNum / NUM_THREADS;
+  uint remainder = sampleRepeatNum % NUM_THREADS;
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    args[i].start = i * chunk;
+    args[i].end =
+        (i == NUM_THREADS - 1) ? (i + 1) * chunk + remainder : (i + 1) * chunk;
+    args[i].result = 0.0;
+    args[i].thread_index = i;
+    pthread_create(&threads[i], NULL, thread_func_2component, &args[i]);
+  }
+
+  double total = 0.0;
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+    total += args[i].result;
+  }
+
+  return total / (double) sampleRepeatNum;
+#endif
 }
 
 

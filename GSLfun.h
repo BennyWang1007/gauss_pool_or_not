@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#define DEFAULT_RNG_SEED 42
 
 typedef unsigned int uint;
 

@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -O3 -Wall -Werror
+CFLAGS = -O3 -Wall -Werror -pthread
 LIBS= -lgsl -lm
 
 all: Gaussian_poolOrNot BetaBinomial_Jeffreys_sample
@@ -19,17 +19,17 @@ else
     VECHO = @printf
 endif
 
-%.o: %.c
+%.o: %.c %.h
 	$(VECHO) "  CC\t$@\n"
 	$(Q)$(CC) -o $@ $(CFLAGS) -c -MMD -MF .$@.d $< $(LIBS)
 
 
-Gaussian_poolOrNot: $(OBJS) Gaussian_poolOrNot.c
+Gaussian_poolOrNot: $(OBJS) Gaussian_poolOrNot.c thread_setup.h
 	$(VECHO) "  LD\t$@\n"
 	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 
-BetaBinomial_Jeffreys_sample: $(OBJS) BetaBinomial_Jeffreys_sample.c
+BetaBinomial_Jeffreys_sample: $(OBJS) BetaBinomial_Jeffreys_sample.c thread_setup.h
 	$(VECHO) "  LD\t$@\n"
 	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
@@ -38,3 +38,4 @@ clean:
 	rm -f Gaussian_poolOrNot
 	rm -f BetaBinomial_Jeffreys_sample
 
+.PHONY: all clean
