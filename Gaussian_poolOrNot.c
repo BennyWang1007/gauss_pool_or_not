@@ -33,12 +33,11 @@ const double sigma_prior_param_a = 0.5;
 const double sigma_prior_param_b = 2.0;
 
 
-double data[DATA_N];
-const uint dataN = DATA_N;
+static double data[DATA_N];
 
-enum modelNames { POOLED, DIFFER };
+// enum modelNames { POOLED, DIFFER };
 
-const uint sampleRepeatNum = 2000000;
+static const uint sampleRepeatNum = 2000000;
 
 
 
@@ -46,20 +45,20 @@ const uint sampleRepeatNum = 2000000;
 
 double data_sample_mean() {
   double mean = 0.0;
-  for (uint i = 0; i < dataN; ++i) {
+  for (uint i = 0; i < DATA_N; ++i) {
     mean += data[i];
   }
-  return mean / (double) dataN;
+  return mean / (double) DATA_N;
 }
 
 double data_sample_variance() {
   double mean = data_sample_mean();
   double var = 0.0;
-  for (uint i = 0; i < dataN; ++i) {
+  for (uint i = 0; i < DATA_N; ++i) {
     double diff = data[i] - mean;
     var += diff * diff;
   }
-  return var / (double) (dataN);
+  return var / (double) DATA_N;
 }
 
 
@@ -72,8 +71,8 @@ int CMPdata(const void *arg1, const void *arg2) {
 }
 
 void data_print() {
-  qsort(data, dataN, sizeof(double), CMPdata);
-  for (uint i = 0; i < dataN; ++i) {
+  qsort(data, DATA_N, sizeof(double), CMPdata);
+  for (uint i = 0; i < DATA_N; ++i) {
     printf("%u\t+%5.3f ", i, data[i]);
   }
 }
@@ -99,13 +98,13 @@ Gauss_mixture_params prior_Gauss_mixture_params_sample() {
 }
 
 void data_generate_1component(Gauss_params params) {
-  for (uint i = 0; i < dataN; ++i) {
+  for (uint i = 0; i < DATA_N; ++i) {
     data[i] = GSLfun_ran_gaussian(params);
   }
 }
 
 void data_generate_2component(Gauss_mixture_params params) {
-  for (uint i = 0; i < dataN; ++i) {
+  for (uint i = 0; i < DATA_N; ++i) {
     data[i] = GSLfun_ran_gaussian(
         gsl_ran_flat01() < params.mixCof ? params.Gauss1 : params.Gauss2);
   }
@@ -152,7 +151,7 @@ void cdfInv_precompute() {
 // Return Ｐ[D|μ,σ]
 double prob_data_given_1Gauss(const Gauss_params params) {
   double prob = 1.0;
-  for (uint d = 0; d < dataN; ++d) {
+  for (uint d = 0; d < DATA_N; ++d) {
     prob *= GSLfun_ran_gaussian_pdf(data[d], params);
   }
   return prob;
@@ -163,7 +162,7 @@ double prob_data_given_1Gauss(const Gauss_params params) {
 double prob_data_given_2Gauss(const double mixCof, const Gauss_params Gauss1,
                               const Gauss_params Gauss2) {
   double prob = 1.0;
-  for (uint i = 0; i < dataN; ++i) {
+  for (uint i = 0; i < DATA_N; ++i) {
     prob *= (1 - mixCof) * GSLfun_ran_gaussian_pdf(data[i], Gauss2) +
             mixCof * GSLfun_ran_gaussian_pdf(data[i], Gauss1);
   }
