@@ -11,6 +11,7 @@
  */
 #include <assert.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,7 @@
 #include "thread_setup.h"
 /* ───────────  Global definitions and variables  ────────── */
 #define DATA_N 50
+#define DATASET_N 10
 #define CDF_GAUSS_N 20
 #define CDF_GAMMA_N 10
 #define CDF_JBETA_N 40
@@ -195,12 +197,136 @@ double data_Gauss1_maxLikelihood() {
 
 
 
+#ifdef USE_THREADS
+/* ──────── Parallel summing for cdf_Gauss_n × cdf_Gauss_n work  ──────── */
+
+typedef struct {
+  uint index;     // Flattened index (m1 * cdf_Gauss_n + m2)
+  double result;
+} JobResult;
+
+#define MAX_JOBS (CDF_GAUSS_N)
+#define MAX_JOBS2 (CDF_GAUSS_N * CDF_GAUSS_N)
+
+static JobResult job_results[MAX_JOBS2];
+static pthread_mutex_t job_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint job_index = 0;
+
+void *thread_worker_1Gauss_sum(void *arg) {
+  while (1) {
+    pthread_mutex_lock(&job_mutex);
+    if (job_index >= MAX_JOBS) {
+      pthread_mutex_unlock(&job_mutex);
+      break;
+    }
+    uint m = job_index++;
+    pthread_mutex_unlock(&job_mutex);
+    double sum = 0.0;
+    double mu = cdfInv_Gauss[m];
+    for (uint s = 0; s < cdf_gamma_n; ++s) {
+      double sigma = sigma_of_precision(cdfInv_gamma[s]);
+      Gauss_params cur_params = {mu, sigma};
+      sum += prob_data_given_1Gauss(cur_params);
+    }
+    pthread_mutex_lock(&job_mutex);
+    job_results[m].index = m;
+    job_results[m].result = sum;
+    pthread_mutex_unlock(&job_mutex);
+  }
+
+  return NULL;
+}
+
+double data_prob_1component_bySumming_parallel() {
+  pthread_t threads[NUM_THREADS];
+
+  job_index = 0; // Reset shared index
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_create(&threads[i], NULL, thread_worker_1Gauss_sum,
+                   (void *)(intptr_t)i);
+  }
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+  }
+
+  double total = 0.0;
+  for (uint i = 0; i < MAX_JOBS; ++i) {
+    total += job_results[i].result;
+  }
+
+  return total / (double)(cdf_Gauss_n * cdf_gamma_n);
+}
+
+
+void *thread_worker_2Gauss_sum(void *arg) {
+  while (1) {
+    pthread_mutex_lock(&job_mutex);
+    if (job_index >= MAX_JOBS2) {
+      pthread_mutex_unlock(&job_mutex);
+      break;
+    }
+    uint idx = job_index++;
+    pthread_mutex_unlock(&job_mutex);
+
+    uint m1 = idx / CDF_GAUSS_N;
+    uint m2 = idx % CDF_GAUSS_N;
+
+    double mu1 = cdfInv_Gauss[m1];
+    double mu2 = cdfInv_Gauss[m2];
+    double sum = 0.0;
+
+    for (uint s1 = 0; s1 < cdf_gamma_n; ++s1) {
+      double sigma1 = sigma_of_precision(cdfInv_gamma[s1]);
+      Gauss_params cur_params1 = {mu1, sigma1};
+      for (uint s2 = 0; s2 < cdf_gamma_n; ++s2) {
+        double sigma2 = sigma_of_precision(cdfInv_gamma[s2]);
+        Gauss_params cur_params2 = {mu2, sigma2};
+        for (uint mi = 0; mi < cdf_JBeta_n; ++mi) {
+          double mixCof = cdfInv_JBeta[mi];
+          sum += prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
+        }
+      }
+    }
+    job_results[idx].index = idx;
+    job_results[idx].result = sum;
+  }
+  return NULL;
+}
+
+double data_prob_2component_bySumming_parallel() {
+  pthread_t threads[NUM_THREADS];
+
+  job_index = 0; // Reset shared index
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_create(&threads[i], NULL, thread_worker_2Gauss_sum, NULL);
+  }
+
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+  }
+
+  double total = 0.0;
+  for (uint i = 0; i < MAX_JOBS2; ++i) {
+    total += job_results[i].result;
+  }
+
+  return total / (double)(cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
+}
+#endif
+
+
 /* Compute Riemann sum to approximate the integral
  *
  * ∫ μ,σ  P[D,μ,σ]
  *
 */
 double data_prob_1component_bySumming() {
+#if defined(USE_THREADS) && (CDF_GAUSS_N > 4 * NUM_THREADS)
+  return data_prob_1component_bySumming_parallel();
+#else
   double prob_total = 0.0;
   for (uint m = 0; m < cdf_Gauss_n; ++m) {
     double mu = cdfInv_Gauss[m];
@@ -211,6 +337,7 @@ double data_prob_1component_bySumming() {
     }
   }
   return prob_total / (double) (cdf_Gauss_n * cdf_gamma_n);
+#endif
 }
 
 
@@ -220,6 +347,9 @@ double data_prob_1component_bySumming() {
  *
 */
 double data_prob_2component_bySumming() {
+#ifdef USE_THREADS
+  return data_prob_2component_bySumming_parallel();
+#else
   double prob_total = 0.0;
 
   for (uint m1 = 0; m1 < cdf_Gauss_n; ++m1) {
@@ -243,6 +373,7 @@ double data_prob_2component_bySumming() {
   }
   return prob_total / (double) (cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n *
                                 cdf_gamma_n * cdf_JBeta_n);
+#endif
 }
 
 
@@ -265,7 +396,7 @@ void *thread_func_1component(void *arg) {
 
 void *thread_func_2component(void *arg) {
   ThreadArg *targ = (ThreadArg *) arg;
-  init_rng(targ->thread_index);
+  init_rng(targ->thread_index + 100);
   double sum = 0.0;
 
   for (uint i = targ->start; i < targ->end; ++i) {
@@ -361,7 +492,7 @@ double data_prob_2component_bySampling() {
 
 
 int main(int argc, char *argv[]) {
-  uint datasets_n = 10;
+  uint datasets_n = DATASET_N;
 
   {
     char usage_fmt[] = "Usage: %s [num_datasets]\n";
