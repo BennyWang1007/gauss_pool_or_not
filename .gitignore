@@ -1,0 +1,5 @@
+.vscode
+*.o
+*.o.d
+Gaussian_poolOrNot
+BetaBinomial_Jeffreys_sample

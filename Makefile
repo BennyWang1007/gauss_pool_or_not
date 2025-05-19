@@ -1,0 +1,40 @@
+CC = gcc
+CFLAGS = -O3 -Wall -Werror
+LIBS= -lgsl -lm
+
+all: Gaussian_poolOrNot BetaBinomial_Jeffreys_sample
+
+UNAME_S := $(shell uname -s)
+
+OBJS := GSLfun.o
+
+deps := $(OBJS:%.o=.%.o.d)
+
+# Control the build verbosity
+ifeq ("$(VERBOSE)","1")
+    Q :=
+    VECHO = @true
+else
+    Q := @
+    VECHO = @printf
+endif
+
+%.o: %.c
+	$(VECHO) "  CC\t$@\n"
+	$(Q)$(CC) -o $@ $(CFLAGS) -c -MMD -MF .$@.d $< $(LIBS)
+
+
+Gaussian_poolOrNot: $(OBJS) Gaussian_poolOrNot.c
+	$(VECHO) "  LD\t$@\n"
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+
+
+BetaBinomial_Jeffreys_sample: $(OBJS) BetaBinomial_Jeffreys_sample.c
+	$(VECHO) "  LD\t$@\n"
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+
+clean:
+	rm -f $(OBJS) $(deps)
+	rm -f Gaussian_poolOrNot
+	rm -f BetaBinomial_Jeffreys_sample
+

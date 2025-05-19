@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "GSLfun.h"
 /*
  *  Example program showing how to use GSL to sample from a beta distribution.
@@ -11,13 +12,11 @@
  */
 
 
-int main( int argc, char *argv[] ){
-
+int main(int argc, char *argv[]) {
   GSLfun_setup();
 
-  for( int i = 0; i < 10; i++ ){
-    printf(  "Sampling from Beta(0.5,0.5), drew r=%g\n",
-             GSLfun_ran_beta_Jeffreys()
-             );
+  for (int i = 0; i < 10; i++) {
+    printf("Sampling from Beta(0.5,0.5), drew r=%g\n",
+           GSLfun_ran_beta_Jeffreys());
   }
 }
