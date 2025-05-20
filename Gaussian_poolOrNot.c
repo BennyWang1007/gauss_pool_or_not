@@ -24,6 +24,8 @@
 #define CDF_GAMMA_N 10
 #define CDF_JBETA_N 40
 
+#define USE_LOG_PROB  // Use log probabilities, a little slower but can handle large DATA_N
+
 typedef struct {
   double mixCof;
   Gauss_params Gauss1;
@@ -95,6 +97,21 @@ void data_print() {
     printf("%u\t+%5.3f ", i, data[i]);
   }
 }
+
+#ifdef USE_LOG_PROB
+// Returns log(Σ(e^log_probs)))
+double logsumexp(double* log_probs, int n) {
+    double max_log = log_probs[0];
+    for (int i = 1; i < n; ++i)
+        if (log_probs[i] > max_log) max_log = log_probs[i];
+
+    double sum = 0.0;
+    for (int i = 0; i < n; ++i)
+        sum += exp(log_probs[i] - max_log);
+
+    return max_log + log(sum);
+}
+#endif
 
 
 /* ───────────  Functions used for sampling/generating data   ────────── */
@@ -169,23 +186,41 @@ void cdfInv_precompute() {
 
 // Return Ｐ[D|μ,σ]
 double prob_data_given_1Gauss(const Gauss_params params) {
+#ifndef USE_LOG_PROB
   double prob = 1.0;
   for (uint d = 0; d < DATA_N; ++d) {
     prob *= GSLfun_ran_gaussian_pdf(data[d], params);
   }
   return prob;
+#else
+  double log_prob = 0.0;
+  for (uint i = 0; i < DATA_N; ++i) {
+    log_prob += log(GSLfun_ran_gaussian_pdf(data[i], params));
+  }
+  return log_prob;
+#endif
 }
 
 
 // Return Ｐ[D|m,μ₁,σ₁,μ₂,σ₂]
 double prob_data_given_2Gauss(const double mixCof, const Gauss_params Gauss1,
                               const Gauss_params Gauss2) {
+#ifndef USE_LOG_PROB
   double prob = 1.0;
   for (uint i = 0; i < DATA_N; ++i) {
     prob *= (1 - mixCof) * GSLfun_ran_gaussian_pdf(data[i], Gauss2) +
             mixCof * GSLfun_ran_gaussian_pdf(data[i], Gauss1);
   }
   return prob;
+#else
+  double log_prob = 0.0;
+  for (uint i = 0; i < DATA_N; ++i) {
+    double prob1 = GSLfun_ran_gaussian_pdf(data[i], Gauss1);
+    double prob2 = GSLfun_ran_gaussian_pdf(data[i], Gauss2);
+    log_prob += log((1 - mixCof) * prob2 + mixCof * prob1);
+  }
+  return log_prob;
+#endif
 }
 
 
@@ -221,17 +256,26 @@ void *thread_worker_1Gauss_sum(void *arg) {
     }
     uint m = job_index++;
     pthread_mutex_unlock(&job_mutex);
-    double sum = 0.0;
     double mu = cdfInv_Gauss[m];
+#ifndef USE_LOG_PROB
+    double sum = 0.0;
     for (uint s = 0; s < cdf_gamma_n; ++s) {
       double sigma = sigma_of_precision(cdfInv_gamma[s]);
       Gauss_params cur_params = {mu, sigma};
       sum += prob_data_given_1Gauss(cur_params);
     }
-    pthread_mutex_lock(&job_mutex);
-    job_results[m].index = m;
     job_results[m].result = sum;
-    pthread_mutex_unlock(&job_mutex);
+#else
+    double *log_prob = malloc(cdf_gamma_n * sizeof(double));
+    for (uint s = 0; s < cdf_gamma_n; ++s) {
+      double sigma = sigma_of_precision(cdfInv_gamma[s]);
+      Gauss_params cur_params = {mu, sigma};
+      log_prob[s] = prob_data_given_1Gauss(cur_params);
+    }
+    job_results[m].result = logsumexp(log_prob, cdf_gamma_n);
+    free(log_prob);
+#endif
+    job_results[m].index = m;
   }
 
   return NULL;
@@ -251,16 +295,27 @@ double data_prob_1component_bySumming_parallel() {
     pthread_join(threads[i], NULL);
   }
 
+#ifndef USE_LOG_PROB
   double total = 0.0;
   for (uint i = 0; i < MAX_JOBS; ++i) {
     total += job_results[i].result;
   }
-
   return total / (double)(cdf_Gauss_n * cdf_gamma_n);
+#else
+  double log_probs[MAX_JOBS];
+  for (uint i = 0; i < MAX_JOBS; ++i) {
+    log_probs[i] = job_results[i].result;
+  }
+  double log_avg_prob = logsumexp(log_probs, MAX_JOBS) - log(cdf_Gauss_n) - log(cdf_gamma_n);
+  return log_avg_prob;
+#endif
 }
 
 
 void *thread_worker_2Gauss_sum(void *arg) {
+#ifdef USE_LOG_PROB
+  double *log_prob = malloc(cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n * sizeof(double));
+#endif
   while (1) {
     pthread_mutex_lock(&job_mutex);
     if (job_index >= MAX_JOBS2) {
@@ -276,7 +331,9 @@ void *thread_worker_2Gauss_sum(void *arg) {
     double mu1 = cdfInv_Gauss[m1];
     double mu2 = cdfInv_Gauss[m2];
     double sum = 0.0;
-
+#ifdef USE_LOG_PROB
+    size_t idx2 = 0;
+#endif
     for (uint s1 = 0; s1 < cdf_gamma_n; ++s1) {
       double sigma1 = sigma_of_precision(cdfInv_gamma[s1]);
       Gauss_params cur_params1 = {mu1, sigma1};
@@ -285,13 +342,23 @@ void *thread_worker_2Gauss_sum(void *arg) {
         Gauss_params cur_params2 = {mu2, sigma2};
         for (uint mi = 0; mi < cdf_JBeta_n; ++mi) {
           double mixCof = cdfInv_JBeta[mi];
+#ifndef USE_LOG_PROB
           sum += prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
+#else
+          log_prob[idx2++] = prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
+#endif
         }
       }
     }
+#ifdef USE_LOG_PROB
+    sum = logsumexp(log_prob, cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
+#endif
     job_results[idx].index = idx;
     job_results[idx].result = sum;
   }
+#ifdef USE_LOG_PROB
+  free(log_prob);
+#endif
   return NULL;
 }
 
@@ -308,12 +375,19 @@ double data_prob_2component_bySumming_parallel() {
     pthread_join(threads[i], NULL);
   }
 
+#ifndef USE_LOG_PROB
   double total = 0.0;
   for (uint i = 0; i < MAX_JOBS2; ++i) {
     total += job_results[i].result;
   }
-
   return total / (double)(cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
+#else
+  double log_probs[MAX_JOBS2];
+  for (uint i = 0; i < MAX_JOBS2; ++i) {
+    log_probs[i] = job_results[i].result;
+  }
+  return logsumexp(log_probs, MAX_JOBS2) - log(cdf_Gauss_n) * 2 - log(cdf_gamma_n) * 2 - log(cdf_JBeta_n);
+#endif
 }
 #endif
 
@@ -324,8 +398,23 @@ double data_prob_2component_bySumming_parallel() {
  *
 */
 double data_prob_1component_bySumming() {
-#if defined(USE_THREADS) && (CDF_GAUSS_N > 4 * NUM_THREADS)
+#if defined(USE_THREADS)// && (CDF_GAUSS_N > 4 * NUM_THREADS)
   return data_prob_1component_bySumming_parallel();
+#else
+#ifdef USE_LOG_PROB
+  double *log_prob = malloc(cdf_Gauss_n * cdf_gamma_n * sizeof(double));
+  for (uint m = 0; m < cdf_Gauss_n; ++m) {
+    double mu = cdfInv_Gauss[m];
+    for (uint s = 0; s < cdf_gamma_n; ++s) {
+      double sigma = sigma_of_precision(cdfInv_gamma[s]);
+      Gauss_params cur_params = {mu, sigma};
+      log_prob[m * (uint)cdf_gamma_n + s] =
+          prob_data_given_1Gauss(cur_params);
+    }
+  }
+  double log_prob_total = logsumexp(log_prob, cdf_Gauss_n * cdf_gamma_n);
+  free(log_prob);
+  return log_prob_total - log(cdf_Gauss_n) - log(cdf_gamma_n);
 #else
   double prob_total = 0.0;
   for (uint m = 0; m < cdf_Gauss_n; ++m) {
@@ -337,6 +426,7 @@ double data_prob_1component_bySumming() {
     }
   }
   return prob_total / (double) (cdf_Gauss_n * cdf_gamma_n);
+#endif
 #endif
 }
 
@@ -350,7 +440,13 @@ double data_prob_2component_bySumming() {
 #ifdef USE_THREADS
   return data_prob_2component_bySumming_parallel();
 #else
+#ifdef USE_LOG_PROB
+  size_t idx = 0;
+  double *log_prob = malloc(cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n *
+                             cdf_gamma_n * cdf_JBeta_n * sizeof(double));
+#else
   double prob_total = 0.0;
+#endif
 
   for (uint m1 = 0; m1 < cdf_Gauss_n; ++m1) {
     double mu1 = cdfInv_Gauss[m1];
@@ -364,15 +460,28 @@ double data_prob_2component_bySumming() {
           Gauss_params cur_params2 = {mu2, sigma2};
           for (uint mi = 0; mi < cdf_JBeta_n; ++mi) {
             double mixCof = cdfInv_JBeta[mi];
+#ifdef USE_LOG_PROB
+            log_prob[idx++] =
+                prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
+#else
             prob_total +=
                 prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
+#endif
           }
         }
       }
     }
   }
+#ifdef USE_LOG_PROB
+  double log_prob_total = logsumexp(log_prob, cdf_Gauss_n * cdf_Gauss_n *
+                                      cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
+  free(log_prob);
+  return log_prob_total - log(cdf_Gauss_n) * 2 - log(cdf_gamma_n) * 2 -
+         log(cdf_JBeta_n);
+#else
   return prob_total / (double) (cdf_Gauss_n * cdf_Gauss_n * cdf_gamma_n *
                                 cdf_gamma_n * cdf_JBeta_n);
+#endif
 #endif
 }
 
@@ -382,14 +491,27 @@ void *thread_func_1component(void *arg) {
   ThreadArg *targ = (ThreadArg *) arg;
   init_rng(targ->thread_index);
 
+#ifndef USE_LOG_PROB
   double sum = 0.0;
-
   for (uint i = targ->start; i < targ->end; ++i) {
     Gauss_params params = prior_Gauss_params_sample();
     sum += prob_data_given_1Gauss(params);
   }
-
   targ->result = sum;
+#else
+  size_t count = targ->end - targ->start;
+  double *log_prob = malloc(count * sizeof(double));
+  for (uint i = 0; i < count; ++i) {
+    Gauss_params params = prior_Gauss_params_sample();
+    log_prob[i] = prob_data_given_1Gauss(params);
+  }
+  if (count == 0) {
+    targ->result = 0.0;
+  } else {
+    targ->result = logsumexp(log_prob, count);
+  }
+  free(log_prob);
+#endif
   return NULL;
 }
 
@@ -397,14 +519,27 @@ void *thread_func_1component(void *arg) {
 void *thread_func_2component(void *arg) {
   ThreadArg *targ = (ThreadArg *) arg;
   init_rng(targ->thread_index + 100);
+#ifndef USE_LOG_PROB
   double sum = 0.0;
-
   for (uint i = targ->start; i < targ->end; ++i) {
     Gauss_mixture_params params = prior_Gauss_mixture_params_sample();
     sum += prob_data_given_2Gauss(params.mixCof, params.Gauss1, params.Gauss2);
   }
-
   targ->result = sum;
+#else
+  size_t count = targ->end - targ->start;
+  double *log_prob = malloc(count * sizeof(double));
+  for (uint i = 0; i < count; ++i) {
+    Gauss_mixture_params params = prior_Gauss_mixture_params_sample();
+    log_prob[i] = prob_data_given_2Gauss(params.mixCof, params.Gauss1, params.Gauss2);
+  }
+  if (count == 0) {
+    targ->result = 0.0;
+  } else {
+    targ->result = logsumexp(log_prob, count);
+  }
+  free(log_prob);
+#endif
   return NULL;
 }
 #endif
@@ -438,13 +573,21 @@ double data_prob_1component_bySampling() {
     pthread_create(&threads[i], NULL, thread_func_1component, &args[i]);
   }
 
+#ifndef USE_LOG_PROB
   double total = 0.0;
   for (int i = 0; i < NUM_THREADS; ++i) {
     pthread_join(threads[i], NULL);
     total += args[i].result;
   }
-
   return total / (double) sampleRepeatNum;
+#else
+  double log_probs[NUM_THREADS];
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+    log_probs[i] = args[i].result;
+  }
+  return logsumexp(log_probs, NUM_THREADS) - log(sampleRepeatNum);
+#endif
 #endif
 }
 
@@ -478,14 +621,21 @@ double data_prob_2component_bySampling() {
     args[i].thread_index = i;
     pthread_create(&threads[i], NULL, thread_func_2component, &args[i]);
   }
-
+#ifndef USE_LOG_PROB
   double total = 0.0;
   for (int i = 0; i < NUM_THREADS; ++i) {
     pthread_join(threads[i], NULL);
     total += args[i].result;
   }
-
   return total / (double) sampleRepeatNum;
+#else
+  double log_probs[NUM_THREADS];
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    pthread_join(threads[i], NULL);
+    log_probs[i] = args[i].result;
+  }
+  return logsumexp(log_probs, NUM_THREADS) - log(sampleRepeatNum);
+#endif
 #endif
 }
 
