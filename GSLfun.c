@@ -36,7 +36,7 @@ static gsl_rng *get_rng() {
 }
 
 
-void Gauss_params_print(Gauss_params params) {
+void Gauss_params_print(const Gauss_params params) {
   printf("(%+4.2f,%4.2f)", params.mu, params.sigma);
 }
 
@@ -63,11 +63,11 @@ double GSLfun_ran_gamma(double a, double theta) {
   return gsl_ran_gamma(get_rng(), a, theta);
 }
 
-double GSLfun_ran_gaussian(Gauss_params params) {
+double GSLfun_ran_gaussian(const Gauss_params params) {
   return params.mu + gsl_ran_gaussian(get_rng(), params.sigma);
 }
 
-double GSLfun_ran_gaussian_pdf(double x, Gauss_params params) {
+double GSLfun_ran_gaussian_pdf(double x, const Gauss_params params) {
   return gsl_ran_gaussian_pdf(x - params.mu, params.sigma);
 }
 
