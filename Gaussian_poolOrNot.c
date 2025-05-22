@@ -199,6 +199,25 @@ double prob_data_given_1Gauss(const Gauss_params params) {
 }
 
 
+double prob_data_1gauss[CDF_GAUSS_N][CDF_GAMMA_N][DATA_N];
+
+
+// Precompute the probabilities for a data point given a Gaussian model
+void init_prob_data_1gauss() {
+  for (uint m = 0; m < cdf_Gauss_n; ++m) {
+    double mu = cdfInv_Gauss[m];
+    for (uint s = 0; s < cdf_gamma_n; ++s) {
+      double sigma = sigma_of_precision(cdfInv_gamma[s]);
+      Gauss_params cur_params = {mu, sigma};
+      for (uint i = 0; i < DATA_N; ++i) {
+        prob_data_1gauss[m][s][i] =
+            GSLfun_ran_gaussian_pdf(data[i], cur_params);
+      }
+    }
+  }
+}
+
+
 // Return Ｐ[D|m,μ₁,σ₁,μ₂,σ₂]
 double prob_data_given_2Gauss(const double mixCof, const Gauss_params Gauss1,
                               const Gauss_params Gauss2) {
@@ -253,7 +272,6 @@ void *thread_worker_1Gauss_sum(void *arg) {
     }
     uint m = job_index++;
     pthread_mutex_unlock(&job_mutex);
-    double mu = cdfInv_Gauss[m];
 #ifndef USE_LOG_PROB
     double sum = 0.0;
     for (uint s = 0; s < cdf_gamma_n; ++s) {
@@ -265,9 +283,10 @@ void *thread_worker_1Gauss_sum(void *arg) {
 #else
     double *log_prob = malloc(cdf_gamma_n * sizeof(double));
     for (uint s = 0; s < cdf_gamma_n; ++s) {
-      double sigma = sigma_of_precision(cdfInv_gamma[s]);
-      Gauss_params cur_params = {mu, sigma};
-      log_prob[s] = prob_data_given_1Gauss(cur_params);
+      log_prob[s] = 0;
+      for (uint i = 0; i < DATA_N; ++i) {
+        log_prob[s] += log(prob_data_1gauss[m][s][i]);
+      }
     }
     job_results[m].result = logsumexp(log_prob, cdf_gamma_n);
     free(log_prob);
@@ -327,29 +346,23 @@ void *thread_worker_2Gauss_sum(void *arg) {
     uint m1 = idx / CDF_GAUSS_N;
     uint m2 = idx % CDF_GAUSS_N;
 
-    double mu1 = cdfInv_Gauss[m1];
-    double mu2 = cdfInv_Gauss[m2];
     double sum = 0.0;
-#ifdef USE_LOG_PROB
     size_t idx2 = 0;
-#endif
     for (uint s1 = 0; s1 < cdf_gamma_n; ++s1) {
-      double sigma1 = sigma_of_precision(cdfInv_gamma[s1]);
-      Gauss_params cur_params1 = {mu1, sigma1};
       for (uint s2 = 0; s2 < cdf_gamma_n; ++s2) {
-        double sigma2 = sigma_of_precision(cdfInv_gamma[s2]);
-        Gauss_params cur_params2 = {mu2, sigma2};
         for (uint mi = 0; mi < cdf_JBeta_n; ++mi) {
           double mixCof = cdfInv_JBeta[mi];
-#ifndef USE_LOG_PROB
-          sum += prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
-#else
-          log_prob[idx2++] =
-              prob_data_given_2Gauss(mixCof, cur_params1, cur_params2);
-#endif
+          log_prob[idx2] = 0;
+          for (uint i = 0; i < DATA_N; ++i) {
+            double prob1 = prob_data_1gauss[m1][s1][i];
+            double prob2 = prob_data_1gauss[m2][s2][i];
+            log_prob[idx2] += log((1 - mixCof) * prob2 + mixCof * prob1);
+          }
+          idx2++;
         }
       }
     }
+
 #ifdef USE_LOG_PROB
     sum = logsumexp(log_prob, cdf_gamma_n * cdf_gamma_n * cdf_JBeta_n);
 #endif
@@ -671,13 +684,10 @@ int main(int argc, char *argv[]) {
 
   cdfInv_precompute();
 
-
   uint model1_sampling_favors1 = 0;
   uint model1_summing__favors1 = 0;
   uint model2_sampling_favors1 = 0;
   uint model2_summing__favors1 = 0;
-
-
 
   printf("Starting computation for %d datasets each. ...\n", datasets_n);
 
@@ -703,7 +713,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-
   printf("\nData generated with one component\n");
   for (uint iter = 0; iter < datasets_n; ++iter) {
     Gauss_params model_params = model_params_list[iter];
@@ -712,6 +721,8 @@ int main(int argc, char *argv[]) {
     data_generate_1component(model_params);
     memcpy(data, data1s[iter],
            sizeof(double) * DATA_N);  // copy the data from the array
+    init_prob_data_1gauss();
+
     printf("Data maximum likelihood under one component model= %g\n",
            data_Gauss1_maxLikelihood());
 
@@ -739,6 +750,8 @@ int main(int argc, char *argv[]) {
     data_generate_2component(model_params);
     memcpy(data, data2s[iter],
            sizeof(double) * DATA_N);  // copy the data from the array
+    init_prob_data_1gauss();
+
     printf("Data maximum likelihood under one component model= %g\n",
            data_Gauss1_maxLikelihood());
 
