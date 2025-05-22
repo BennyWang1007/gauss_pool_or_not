@@ -101,10 +101,13 @@ void data_print() {
 double logsumexp(double *log_probs, int n) {
   double max_log = log_probs[0];
   for (int i = 1; i < n; ++i)
-    if (log_probs[i] > max_log) max_log = log_probs[i];
+    if (isnan(max_log) || !isfinite(max_log) || log_probs[i] > max_log)
+      max_log = log_probs[i];
 
   double sum = 0.0;
-  for (int i = 0; i < n; ++i) sum += exp(log_probs[i] - max_log);
+  for (int i = 0; i < n; ++i)
+    if (!isnan(log_probs[i]) && isfinite(log_probs[i]))
+      sum += exp(log_probs[i] - max_log);
 
   return max_log + log(sum);
 }
