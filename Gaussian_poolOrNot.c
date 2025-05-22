@@ -681,12 +681,37 @@ int main(int argc, char *argv[]) {
 
   printf("Starting computation for %d datasets each. ...\n", datasets_n);
 
+  Gauss_params model_params_list[DATASET_N];
+  Gauss_mixture_params model_params_list2[DATASET_N];
+  for (uint i = 0; i < DATASET_N; ++i) {
+    model_params_list[i] = prior_Gauss_params_sample();
+    model_params_list2[i] = prior_Gauss_mixture_params_sample();
+  }
+
+  double data1s[DATASET_N][DATA_N];
+  double data2s[DATASET_N][DATA_N];
+
+  for (
+      size_t i = 0; i < DATA_N;
+      ++i) {  // loop the data first to make sure in different DATA_N, they contain the same data
+    for (size_t j = 0; j < DATASET_N; ++j) {  // loop the datasets
+      data1s[j][i] = GSLfun_ran_gaussian(model_params_list[j]);
+      data2s[j][i] =
+          GSLfun_ran_gaussian(gsl_ran_flat01() < model_params_list2[j].mixCof
+                                  ? model_params_list2[j].Gauss1
+                                  : model_params_list2[j].Gauss2);
+    }
+  }
+
+
   printf("\nData generated with one component\n");
   for (uint iter = 0; iter < datasets_n; ++iter) {
-    Gauss_params model_params = prior_Gauss_params_sample();
+    Gauss_params model_params = model_params_list[iter];
     printf("generating data with: (μ,σ) =  (%4.2f,%4.2f)\n", model_params.mu,
            model_params.sigma);
     data_generate_1component(model_params);
+    memcpy(data, data1s[iter],
+           sizeof(double) * DATA_N);  // copy the data from the array
     printf("Data maximum likelihood under one component model= %g\n",
            data_Gauss1_maxLikelihood());
 
@@ -705,13 +730,15 @@ int main(int argc, char *argv[]) {
 
   printf("\nData generated with two components\n");
   for (uint iter = 0; iter < datasets_n; ++iter) {
-    Gauss_mixture_params model_params = prior_Gauss_mixture_params_sample();
+    Gauss_mixture_params model_params = model_params_list2[iter];
     printf(
         "generating data with:  m; (μ1,σ1); (μ2,σ2) =  %5.3f; (%4.2f,%4.2f); "
         "(%4.2f,%4.2f)\n",
         model_params.mixCof, model_params.Gauss1.mu, model_params.Gauss1.sigma,
         model_params.Gauss2.mu, model_params.Gauss2.sigma);
     data_generate_2component(model_params);
+    memcpy(data, data2s[iter],
+           sizeof(double) * DATA_N);  // copy the data from the array
     printf("Data maximum likelihood under one component model= %g\n",
            data_Gauss1_maxLikelihood());
 
