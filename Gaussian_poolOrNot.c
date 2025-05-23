@@ -243,12 +243,123 @@ double prob_data_given_2Gauss(const double mixCof, const Gauss_params Gauss1,
 }
 
 
-// Return maximum likelihood of the data using a single Gaussian
-double data_Gauss1_maxLikelihood() {
-  Gauss_params params = {data_sample_mean(), data_sample_variance()};
-  return prob_data_given_1Gauss(params);
+typedef struct {
+  double mu;
+  double sigma;
+  double log_likelihood;
+} MLE_1Gauss_result;
+
+
+// Structure to hold MLE results for 2-component Gaussian
+typedef struct {
+  double mixCof;
+  Gauss_params Gauss1;
+  Gauss_params Gauss2;
+  double log_likelihood;
+} MLE_2Gauss_result;
+
+
+// Maximum Likelihood for 1-component Gaussian (analytical solution)
+MLE_1Gauss_result max_likelihood_1Gauss() {
+  MLE_1Gauss_result result;
+  result.mu = data_sample_mean();
+  result.sigma = sqrt(data_sample_variance());
+  result.log_likelihood =
+      prob_data_given_1Gauss((Gauss_params){result.mu, result.sigma});
+  return result;
 }
 
+
+// Maximum Likelihood for 2-component Gaussian (EM algorithm)
+MLE_2Gauss_result max_likelihood_2Gauss(uint max_iter, double tolerance) {
+  MLE_2Gauss_result result;
+  double *responsibilities = malloc(DATA_N * sizeof(double));
+
+  // Initialize parameters using method of moments
+  MLE_1Gauss_result single_gauss = max_likelihood_1Gauss();
+
+  // Initialize two components by perturbing the single Gaussian solution
+  result.Gauss1.mu = single_gauss.mu - 0.5 * single_gauss.sigma;
+  result.Gauss2.mu = single_gauss.mu + 0.5 * single_gauss.sigma;
+  result.Gauss1.sigma = single_gauss.sigma * 0.8;
+  result.Gauss2.sigma = single_gauss.sigma * 1.2;
+  result.mixCof = 0.5;
+
+  double prev_log_likelihood = -INFINITY;
+
+  for (uint iter = 0; iter < max_iter; iter++) {
+    // E-step: Compute responsibilities
+    for (uint i = 0; i < DATA_N; i++) {
+      double x = data[i];
+      double prob1 = result.mixCof * GSLfun_ran_gaussian_pdf(x, result.Gauss1);
+      double prob2 =
+          (1 - result.mixCof) * GSLfun_ran_gaussian_pdf(x, result.Gauss2);
+      responsibilities[i] = prob1 / (prob1 + prob2);
+    }
+
+    // M-step: Update parameters
+    double sum_r = 0.0, sum_r_x = 0.0, sum_r_x2 = 0.0;
+    double sum_1r = 0.0, sum_1r_x = 0.0, sum_1r_x2 = 0.0;
+
+    for (uint i = 0; i < DATA_N; i++) {
+      double x = data[i];
+      double r = responsibilities[i];
+
+      sum_r += r;
+      sum_r_x += r * x;
+      sum_r_x2 += r * x * x;
+
+      sum_1r += (1 - r);
+      sum_1r_x += (1 - r) * x;
+      sum_1r_x2 += (1 - r) * x * x;
+    }
+
+    // Update mixing coefficient
+    result.mixCof = sum_r / DATA_N;
+
+    // Update means
+    result.Gauss1.mu = sum_r_x / sum_r;
+    result.Gauss2.mu = sum_1r_x / sum_1r;
+
+    // Update variances
+    result.Gauss1.sigma =
+        sqrt(fmax((sum_r_x2 / sum_r) - pow(result.Gauss1.mu, 2), 1e-6));
+    result.Gauss2.sigma =
+        sqrt(fmax((sum_1r_x2 / sum_1r) - pow(result.Gauss2.mu, 2), 1e-6));
+
+    // Compute log likelihood for convergence check
+    double current_log_likelihood =
+        prob_data_given_2Gauss(result.mixCof, result.Gauss1, result.Gauss2);
+
+    if (fabs(current_log_likelihood - prev_log_likelihood) < tolerance) {
+      result.log_likelihood = current_log_likelihood;
+      break;
+    }
+    prev_log_likelihood = current_log_likelihood;
+  }
+
+  free(responsibilities);
+  // Final log likelihood
+  result.log_likelihood =
+      prob_data_given_2Gauss(result.mixCof, result.Gauss1, result.Gauss2);
+  return result;
+}
+
+
+/* ─────────── Model Comparison ────────── */
+
+// Compare models using BIC (Bayesian Information Criterion)
+int compare_models_bic(MLE_1Gauss_result mle1, MLE_2Gauss_result mle2) {
+  // Number of parameters
+  int k1 = 2;  // μ, σ for 1-component
+  int k2 = 5;  // cof, μ₁, σ₁, μ₂, σ₂ for 2-component
+
+  // Calculate BIC = -2*logLik + k*log(n)
+  double bic1 = -2 * mle1.log_likelihood + k1 * log(DATA_N);
+  double bic2 = -2 * mle2.log_likelihood + k2 * log(DATA_N);
+
+  return (bic2 < bic1) ? 2 : 1;
+}
 
 
 #ifdef USE_THREADS
@@ -299,6 +410,7 @@ void *thread_worker_1Gauss_sum(void *arg) {
 
   return NULL;
 }
+
 
 double data_prob_1component_bySumming_parallel() {
   pthread_t threads[NUM_THREADS];
@@ -377,6 +489,7 @@ void *thread_worker_2Gauss_sum(void *arg) {
 #endif
   return NULL;
 }
+
 
 double data_prob_2component_bySumming_parallel() {
   pthread_t threads[NUM_THREADS];
@@ -611,7 +724,6 @@ double data_prob_1component_bySampling() {
 }
 
 
-
 /*  Use sampling to estimate
  *  ∫ m,μ₁,σ₁,μ₂,σ₂  P[D,m,μ₁,σ₁,μ₂,σ₂]
  */
@@ -659,7 +771,6 @@ double data_prob_2component_bySampling() {
 }
 
 
-
 int main(int argc, char *argv[]) {
   uint datasets_n = DATASET_N;
 
@@ -691,6 +802,8 @@ int main(int argc, char *argv[]) {
   uint model1_summing__favors1 = 0;
   uint model2_sampling_favors1 = 0;
   uint model2_summing__favors1 = 0;
+  uint model1_bic_favors1 = 0;
+  uint model2_bic_favors2 = 0;
 
   printf("Starting computation for %d datasets each. ...\n", datasets_n);
 
@@ -726,8 +839,22 @@ int main(int argc, char *argv[]) {
            sizeof(double) * DATA_N);  // copy the data from the array
     init_prob_data_1gauss();
 
+    MLE_1Gauss_result mle1 = max_likelihood_1Gauss();
+    MLE_2Gauss_result mle2 = max_likelihood_2Gauss(100, 1e-6);
     printf("Data maximum likelihood under one component model= %g\n",
-           data_Gauss1_maxLikelihood());
+           mle1.log_likelihood);
+    printf("MLE (μ,σ) = (%4.2f,%4.2f)\n", mle1.mu, mle1.sigma);
+    printf("Data maximum likelihood under two component model= %g\n",
+           mle2.log_likelihood);
+    printf("MLE cof, (μ₁,σ₁), (μ₂,σ₂) = %4.2f, (%4.2f,%4.2f), (%4.2f,%4.2f)\n",
+           mle2.mixCof, mle2.Gauss1.mu, mle2.Gauss1.sigma, mle2.Gauss2.mu,
+           mle2.Gauss2.sigma);
+
+    int model = compare_models_bic(mle1, mle2);
+    if (model == 1) {
+      ++model1_bic_favors1;
+    }
+    printf("BIC favors model %d\n", model);
 
     prob_data1_bySampling = data_prob_1component_bySampling();
     prob_data2_bySampling = data_prob_2component_bySampling();
@@ -755,8 +882,21 @@ int main(int argc, char *argv[]) {
            sizeof(double) * DATA_N);  // copy the data from the array
     init_prob_data_1gauss();
 
+    MLE_1Gauss_result mle1 = max_likelihood_1Gauss();
+    MLE_2Gauss_result mle2 = max_likelihood_2Gauss(100, 1e-6);
     printf("Data maximum likelihood under one component model= %g\n",
-           data_Gauss1_maxLikelihood());
+           mle1.log_likelihood);
+    printf("MLE μ,σ = (%4.2f,%4.2f)\n", mle1.mu, mle1.sigma);
+    printf("Data maximum likelihood under two component model= %g\n",
+           mle2.log_likelihood);
+    printf("MLE cof, (μ₁,σ₁), (μ₂,σ₂) = %4.2f, (%4.2f,%4.2f), (%4.2f,%4.2f)\n",
+           mle2.mixCof, mle2.Gauss1.mu, mle2.Gauss1.sigma, mle2.Gauss2.mu,
+           mle2.Gauss2.sigma);
+    int model = compare_models_bic(mle1, mle2);
+    if (model == 2) {
+      ++model2_bic_favors2;
+    }
+    printf("BIC favors model %d\n", model);
 
     prob_data1_bySampling = data_prob_1component_bySampling();
     prob_data2_bySampling = data_prob_2component_bySampling();
@@ -778,4 +918,9 @@ int main(int argc, char *argv[]) {
          model1_summing__favors1, datasets_n);
   printf("             Model2 data, correct selection %u/%u\n",
          (datasets_n - model2_summing__favors1), datasets_n);
+
+  printf("By BIC:      Model1 data, correct selection %u/%u\n",
+         model1_bic_favors1, datasets_n);
+  printf("             Model2 data, correct selection %u/%u\n",
+         model2_bic_favors2, datasets_n);
 }
