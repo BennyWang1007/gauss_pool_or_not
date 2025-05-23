@@ -2,9 +2,7 @@ CC = gcc
 CFLAGS = -O3 -Wall -Werror -pthread
 LIBS= -lgsl -lm
 
-all: Gaussian_poolOrNot BetaBinomial_Jeffreys_sample
-
-UNAME_S := $(shell uname -s)
+all: Gaussian_poolOrNot BetaBinomial_Jeffreys_sample Gaussian_poolOrNot_cli
 
 OBJS := GSLfun.o
 
@@ -29,13 +27,18 @@ Gaussian_poolOrNot: $(OBJS) Gaussian_poolOrNot.c thread_setup.h
 	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 
+Gaussian_poolOrNot_cli: $(OBJS) Gaussian_poolOrNot_cli.c thread_setup.h
+	$(VECHO) "  LD\t$@\n"
+	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+
+
 BetaBinomial_Jeffreys_sample: $(OBJS) BetaBinomial_Jeffreys_sample.c thread_setup.h
 	$(VECHO) "  LD\t$@\n"
 	$(Q)$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 clean:
 	rm -f $(OBJS) $(deps)
-	rm -f Gaussian_poolOrNot
+	rm -f Gaussian_poolOrNot Gaussian_poolOrNot_cli
 	rm -f BetaBinomial_Jeffreys_sample
 
 .PHONY: all clean

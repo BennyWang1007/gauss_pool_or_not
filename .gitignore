@@ -1,5 +1,9 @@
 .vscode
 *.o
 *.o.d
+
 Gaussian_poolOrNot
 BetaBinomial_Jeffreys_sample
+Gaussian_poolOrNot_cli
+
+results/
